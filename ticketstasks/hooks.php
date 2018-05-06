@@ -9,34 +9,34 @@ if (!defined("WHMCS"))
 if(!defined('JTT_ROOT_PATH')) define('JTT_ROOT_PATH', dirname(__FILE__));
 if(!defined('WHMCS_ROOT_PATH')) define('WHMCS_ROOT_PATH', realpath(dirname($_SERVER['SCRIPT_FILENAME']) . '/../'));
 
-use Illuminate\Database\Capsule\Manager as Capsule;
-
 require_once(JTT_ROOT_PATH . '/includes/functions.php');
 
 function ticketstasks_hook_addpopup($vars)
 {
-	global $_ADMINLANG;
+	global $CONFIG, $_ADMINLANG;
 
 	if($vars['filename'] == 'clientssummary')
 	{
-		$instance = ticketstasks::getInstance();
 
+		$instance = ticketstasks::getInstance();
+		
 		// if the system is disabled exit the function
 		if(!$instance->getConfig('system_enabled')) return;
-
+		
 		return "<script type='text/javascript'>
 			$(document).ready(function() {
 				var new_ticket_link = $('a').filter(function() { return this.href.match(/supporttickets\.php\?action\=open.*/); });
 				var new_ticket = new_ticket_link.closest('li');
 
-				new_ticket.after('<li><a href=\"addonmodules.php?module=ticketstasks&pagename=tasks&view=create&userid={$vars['clientsdetails']['userid']}\"><img border=\"0\" align=\"absmiddle\" src=\"images/icons/todolist.png\" /> Create New Ticket Creation Task</a></li>');
+				new_ticket.after('<li><a href=\"addonmodules.php?module=ticketstasks&pagename=tasks&view=create&userid={$vars['clientsdetails']['userid']}\"><img border=\"0\" align=\"absmiddle\" src=\"images/icons/todolist.png\" /> " . $instance->lang('opennewscheduledticket') . "</a></li>');
 			});
 			</script>";
-	}
+	}	
 	elseif($vars['filename'] == 'supporttickets' && $vars['pageicon'] != 'ticketsopen')
 	{
-		$instance = ticketstasks::getInstance();
 
+		$instance = ticketstasks::getInstance();
+		
 		// if the system is disabled exit the function
 		if(!$instance->getConfig('system_enabled')) return;
 
@@ -48,7 +48,7 @@ function ticketstasks_hook_addpopup($vars)
 			if(!$instance->getConfig('view_active')) return;
 
 			$response = array();
-
+			
 			switch(ticketstasks::request_var('sub', '', array('addtask','deltask')))
 			{
 				case 'addtask':
@@ -68,26 +68,25 @@ function ticketstasks_hook_addpopup($vars)
 					$response = ticketstasks::deleteTask(ticketstasks::request_var('id', 0), ticketstasks::request_var('idsd', 0));
 				break;
 			}
-
-			$ticket_details = Capsule::table('tbltickets')
-				->where('id', $ticket_id)
-				->get();
-
-			$ticket_details = isset($ticket_details[0]) ? (array) $ticket_details[0] : null;
+			
+			$sql = "SELECT *
+				FROM tbltickets
+				WHERE id = '{$ticket_id}'";
+			$result = mysql_query($sql);
+			$ticket_details = mysql_fetch_assoc($result);
 
 			$tasks = array();
 
-			$task_rows = Capsule::table('mod_ticketstasks_tasks as s')
-				->select('s.*', 's.id as task_id', 't.*')
-				->join('tbltickets as t', 's.ticket_id', '=', 't.id')
-				->where('s.ticket_id', '=', $ticket_id)
-				->orderBy('s.task_time', 'asc')
-				->get();
+			$sql = "SELECT s.*, s.id as task_id, t.*
+				FROM mod_ticketstasks_tasks as s
+				INNER JOIN tbltickets as t
+				ON s.ticket_id = t.id
+				WHERE s.ticket_id = '{$ticket_id}'
+				ORDER BY s.task_time ASC";
+			$result = mysql_query($sql);
 
-			foreach($task_rows as $task_details)
+			while($task_details = mysql_fetch_assoc($result))
 			{
-				$task_details = (array) $task_details;
-
 				$task_details['task_time_date'] = date("d/m/Y", $task_details['task_time']);
 				$task_details['task_time_hours'] = date("H", $task_details['task_time']);
 				$task_details['task_time_minutes'] = date("i", $task_details['task_time']);
@@ -95,42 +94,44 @@ function ticketstasks_hook_addpopup($vars)
 				$task_details['task_abort'] = $task_details['task_abort'] ? unserialize($task_details['task_abort']) : array();
 
 				if(isset($task_details['task_abort']['lastreplytime'])) $task_details['task_abort']['lastreplytime'] = fromMySQLDate($task_details['task_abort']['lastreplytime'], true);
-
+				
 				$tasks[$task_details['task_id']] = $task_details;
 			}
+			mysql_free_result($result);
 
 			$predefined = array();
-
-			$predefined_rows = Capsule::table('mod_ticketstasks_predefined')
-				->orderBy('id', 'desc')
-				->get();
-
-			foreach($predefined_rows as $predefined_details)
+			
+			$sql = "SELECT *
+				FROM mod_ticketstasks_predefined
+				ORDER BY id DESC";
+			$result = mysql_query($sql);
+			
+			while($predefined_details = mysql_fetch_assoc($result))
 			{
-				$predefined_details = (array) $predefined_details;
-
 				$predefined_details['task_abort'] = $predefined_details['task_abort'] ? unserialize($predefined_details['task_abort']) : array();
+				
 				$predefined[$predefined_details['id']] = $predefined_details;
 			}
-
-			$editor = '';
-
-			if(file_exists(WHMCS_ROOT_PATH . '/assets/js/markdown.min.js'))
+			mysql_free_result($result);
+				
+			$editor = ''; 
+			
+			if(file_exists(WHMCS_ROOT_PATH . '/assets/js/markdown.min.js')) 
 			{
-				$editor .= '<script type="text/javascript" src="../assets/js/bootstrap-markdown.js"></script>';
-				$editor .= '<link rel="stylesheet" type="text/css" href="../assets/css/bootstrap-markdown.min.css" />';
-				$editor .= '<script type="text/javascript" src="../assets/js/markdown.min.js"></script>';
-				$editor .= '<script type="text/javascript" src="../assets/js/to-markdown.js"></script>';
-				$editor .= '<script type="text/javascript" src="../modules/addons/ticketstasks/js/editor.js"></script>';
+				$editor .= '<script type="text/javascript" src="/assets/js/bootstrap-markdown.js"></script>';
+				$editor .= '<link rel="stylesheet" type="text/css" href="/assets/css/bootstrap-markdown.min.css" />';
+				$editor .= '<script type="text/javascript" src="/assets/js/markdown.min.js"></script>';
+				$editor .= '<script type="text/javascript" src="/assets/js/to-markdown.js"></script>';
+				$editor .= '<script type="text/javascript" src="../modules/addons/ticketstasks/js/editor.js"></script>';			
 			}
 
 			$errors = '';
-
+			
 			if(sizeof($response) && !$response['success'])
 			{
 				$errors = '<div class="errorbox"><strong><span class="title">Error!</span></strong><br>' . $response['message'] . '</div>';
 			}
-
+			
 			return "{$editor}<script type='text/javascript' src='../modules/addons/ticketstasks/js/sprintf.js'></script>
 <style type=\"text/css\">
 .ticketstasks-box .reply.note{
@@ -165,13 +166,13 @@ $(document).ready(function() {
 	" . ($errors ? "$('#content_padded').prepend('{$errors}');" : '') . " 
 	$(\".tab\").unbind('click');
 
-	addTaskTab = $('<li />').html($('<a/>').attr({ 'data-toggle': 'tab', role: 'tab', href: '#tabTicketTasks' }).text('" . $instance->lang('addtask') . "'));
+	addTaskTab = $('<li />').html($('<a/>').attr({ 'data-toggle': 'tab', role: 'tab', href: '#tabTasks' }).text('" . $instance->lang('addtask') . "'));
 
 	$('.nav-tabs.admin-tabs li').eq(2).after(addTaskTab);
 
 	var html = '';
 
-	html += '<form action=\"{$_SERVER['REQUEST_URI']}\" method=\"post\" id=\"addtaskform\">';
+	html += '<fo' + 'rm action=\"{$_SERVER['REQUEST_URI']}\" method=\"post\" id=\"addtaskform\">';
 
 	html += '<table width=\"100%\" border=\"0\" cellspacing=\"2\" cellpadding=\"3\" class=\"form\"></tr>';
 	html += '<td class=\"fieldlabel\" style=\"width: 25%\">" . $instance->lang('taskinterval') . ":</td><td class=\"fieldarea\">';
@@ -381,7 +382,7 @@ $(document).ready(function() {
 		if(paddingTasks) paddingTasks = '<br /><h2>" . $instance->lang('tickettasks') . "</h2><div id=\"ticketreplies\" class=\"ticketstasks-box\">' + paddingTasks + '</div>';
 	}
 
-	$('.tab-content.admin-tabs').append('<div id=\"tabTicketTasks\" class=\"tab-pane\">' + html + '</div>' + paddingTasks);
+	$('.tab-content.admin-tabs').append('<div id=\"tabTasks\" class=\"tab-pane\">' + html + '</div>' + paddingTasks);
 
 	var totalPredefined = 0;
 		
@@ -537,39 +538,40 @@ function doEditTask(id)
 
 							if(sizeof($tickets))
 							{
-								$task_rows = Capsule::table('mod_ticketstasks_tasks as s')
-									->select('s.*', 's.id as task_id', 't.*')
-									->join('tbltickets as t', 's.ticket_id', '=', 't.id')
-									->whereIn('s.ticket_id', $tickets)
-									->orderBy('s.task_time', 'asc')
-									->get();
+								$sql = "SELECT s.*, s.id as task_id, t.*
+									FROM mod_ticketstasks_tasks as s
+									INNER JOIN tbltickets as t
+									ON s.ticket_id = t.id
+									WHERE s.ticket_id IN ('" . implode("','", $tickets) . "')
+									ORDER BY s.task_time ASC";
+								$result = mysql_query($sql);
 
-								foreach($task_rows as $task_details)
+								while($task_details = mysql_fetch_assoc($result))
 								{
-									$task_details = (array) $task_details;
-
 									$task_details['task_time_date'] = date("d/m/Y", $task_details['task_time']);
 									$task_details['task_time_hours'] = date("H", $task_details['task_time']);
 									$task_details['task_time_minutes'] = date("i", $task_details['task_time']);
 									$task_details['task_time'] = fromMySQLDate(date("Y-m-d H:i", $task_details['task_time']), true);
 									$task_details['task_abort'] = $task_details['task_abort'] ? unserialize($task_details['task_abort']) : array();
-
+									
 									if(isset($task_details['task_abort']['lastreplytime'])) $task_details['task_abort']['lastreplytime'] = fromMySQLDate($task_details['task_abort']['lastreplytime'], true);
-
-
+										
+									
 									$tasks[$task_details['ticket_id']][$task_details['task_id']] = $task_details;
 									if($task_details['task_status'] == 'Pending') $total_tasks[$task_details['ticket_id']]++;
 								}
+								mysql_free_result($result);
 
-								$ticket_rows = Capsule::table('tbltickets')
-									->select('id', 'status')
-									->whereIn('id', $tickets)
-									->get();
+								$sql = "SELECT id, status
+									FROM tbltickets
+									WHERE id IN ('" . implode("','", $tickets) . "')";
+								$result = mysql_query($sql);
 
-								foreach($ticket_rows as $ticket_details)
+								while($ticket_details = mysql_fetch_assoc($result))
 								{
-									$statuses[$ticket_details->id] = $ticket_details->status;
+									$statuses[$ticket_details['id']] = $ticket_details['status'];
 								}
+								mysql_free_result($result);
 							}
 
 							echo json_encode(array('success' => true, 'tasks' => $tasks, 'statuses' => $statuses, 'total_tasks' => $total_tasks));
@@ -628,29 +630,31 @@ function doEditTask(id)
 			}
 
 			$predefined = array();
-
-			$predefined_rows = Capsule::table('mod_ticketstasks_predefined')
-				->orderBy('id', 'desc')
-				->get();
-
-			foreach($predefined_rows as $predefined_details)
+			
+			$sql = "SELECT *
+				FROM mod_ticketstasks_predefined
+				ORDER BY id DESC";
+			$result = mysql_query($sql);
+			
+			while($predefined_details = mysql_fetch_assoc($result))
 			{
-				$predefined_details = (array) $predefined_details;
 				$predefined_details['task_abort'] = $predefined_details['task_abort'] ? unserialize($predefined_details['task_abort']) : array();
+				
 				$predefined[$predefined_details['id']] = $predefined_details;
 			}
-
-			$editor = '';
-
-			if(file_exists(WHMCS_ROOT_PATH . '/assets/js/markdown.min.js'))
+			mysql_free_result($result);
+			
+			$editor = ''; 
+			
+			if(file_exists(WHMCS_ROOT_PATH . '/assets/js/markdown.min.js')) 
 			{
-				$editor .= '<script type="text/javascript" src="../assets/js/bootstrap-markdown.js"></script>';
-				$editor .= '<link rel="stylesheet" type="text/css" href="../assets/css/bootstrap-markdown.min.css" />';
-				$editor .= '<script type="text/javascript" src="../assets/js/markdown.min.js"></script>';
-				$editor .= '<script type="text/javascript" src="../assets/js/to-markdown.js"></script>';
-				$editor .= '<script type="text/javascript" src="../modules/addons/ticketstasks/js/editor.js"></script>';
+				$editor .= '<script type="text/javascript" src="/assets/js/bootstrap-markdown.js"></script>';
+				$editor .= '<link rel="stylesheet" type="text/css" href="/assets/css/bootstrap-markdown.min.css" />';
+				$editor .= '<script type="text/javascript" src="/assets/js/markdown.min.js"></script>';
+				$editor .= '<script type="text/javascript" src="/assets/js/to-markdown.js"></script>';
+				$editor .= '<script type="text/javascript" src="../modules/addons/ticketstasks/js/editor.js"></script>';			
 			}
-
+			
 			return "{$editor}<script type='text/javascript' src='../modules/addons/ticketstasks/js/sprintf.js'></script>
 
 <style type=\"text/css\">
@@ -683,8 +687,8 @@ var request_uri = '{$_SERVER['REQUEST_URI']}" . (sizeof($request_url) ? (strpos(
 
 $(document).ready(function() {
 
-	setTasksBar($('#content_padded form').eq(-1));
-	setTasksBar($('#content_padded form').eq(-3));
+	setTasksBar($('#contentarea form').eq(-1));
+	setTasksBar($('#contentarea form').eq(-3));
 });
 
 function setTasksBar(form)
@@ -893,7 +897,7 @@ function addTask(ticket_id)
 
 
 	html += '<div class=\"tab-pane\" id=\"taskstab1box\">';
-	html += '<form action=\"\" method=\"post\" id=\"addtaskform\">';
+	html += '<fo' + 'rm action=\"\" method=\"post\" id=\"addtaskform\">';
 
 	html += '<div class=\"taskmsgbox errorbox\" style=\"display: none;\"><strong><span class=\"title\">" . $instance->lang('error') . "!</span></strong><br><span class=\"taskmsgcontent\"></span></div>';
 
@@ -1371,23 +1375,26 @@ function ticketstasks_widget($vars)
 	global $vars;
 
 	$instance = ticketstasks::getInstance();
-
+	
 	$tasks = array();
 
-	$task_rows = Capsule::table('mod_ticketstasks_tasks as s')
-		->select('s.*', 's.id as task_id', 't.*', 'c.firstname', 'c.lastname')
-		->join('tbltickets as t', 's.ticket_id', '=', 't.id')
-		->leftJoin('tblclients as c', 't.userid', '=', 'c.id')
-		->where('s.task_status', '=', 'Pending')
-		->orderBy('s.task_time', 'desc')
-		->get();
+	$sql = "SELECT s.*, s.id as task_id, t.*, c.firstname, c.lastname
+		FROM mod_ticketstasks_tasks as s
+		INNER JOIN tbltickets as t
+		ON s.ticket_id = t.id
+		LEFT JOIN tblclients as c
+		ON t.userid = c.id
+		WHERE s.task_status = 'Pending'
+		ORDER BY s.task_time DESC";
+	$result = mysql_query($sql);
 
-	foreach($task_rows as $task_details)
+	while($task_details = mysql_fetch_assoc($result))
 	{
-		$task_details = (array) $task_details;
 		$task_details['task_abort'] = $task_details['task_abort'] ? unserialize($task_details['task_abort']) : array();
+
 		$tasks[$task_details['task_id']] = $task_details;
 	}
+	mysql_free_result($result);
 
 	$content = '<div style="overflow-y: scroll; max-height: 200px;">';
 	$content .= '<table width="100%" bgcolor="#cccccc" cellspacing="1"><tbody>';
@@ -1408,7 +1415,7 @@ function ticketstasks_widget($vars)
 			$ticket_admin_details = $instance->getAdmin($task_details['ticket_admin_id']);
 			$status_details = $instance->getTicketStatus($task_details['ticket_status_id']);
 			$department_details = $instance->getTicketDepartment($task_details['ticket_dept_id']);
-
+				
 			$content .= '<td style="text-align:center;"><a href="supporttickets.php?action=view&id=' . $task_details['ticket_id'] . '" target="_blank">#' . $task_details['ticket_id'] . '</a></td>';
 			$content .= '<td style="text-align:center;">' . $admin_details['firstname']  . ' ' . $admin_details['lastname'] . '</td>';
 			$content .= '<td style="text-align:center;">' . date("d/m/Y H:i", $task_details['task_time']) . '</td>';
@@ -1422,7 +1429,7 @@ function ticketstasks_widget($vars)
 			$content .= ($task_details['ticket_reply'] ? '<li style="list-style: circle !important;"><strong>' . $instance->lang('tasksactions')['reply'] . '</strong><br />' . $task_details['ticket_reply'] . '</li>' : '');
 			$content .= ($task_details['ticket_note'] ? '<li style="list-style: circle !important;"><strong>' . $instance->lang('tasksactions')['note'] . '</strong><br />' . $task_details['ticket_note'] . '</li>' : '');
 
-			if(sizeof($task_details['task_abort']))
+			if(sizeof($task_details['task_abort'])) 
 			{
 				$content .= '<li style="list-style: disc !important;">' . $instance->lang('tasksactions')['abort'];
 				$content .= '<ul>';
@@ -1455,7 +1462,21 @@ function ticketstasks_widget($vars)
 	);
 }
 
+function ticketstasks_menuitem() 
+{
+	$instance = ticketstasks::getInstance();
+	
+	return "<script type=\"text/javascript\">
+		$(document).ready(function() {
+			var menu = $('#Menu-Support').next('ul');
+		
+			$('> li', menu).eq(4).after('<li><a id=\"Menu-Support-Open_Scheduled_Ticket\" href=\"addonmodules.php?module=ticketstasks&pagename=tasks&view=create\">" . $instance->lang('openscheduledticket') . "</a></li>');
+		});
+		</script>";
+}
+
 add_hook('AdminAreaHeadOutput', 0, 'ticketstasks_hook_addpopup');
+add_hook('AdminAreaHeadOutput', 1, 'ticketstasks_menuitem');
 add_hook('AdminHomeWidgets', 	0, 'ticketstasks_widget');
 
 ?>
